@@ -152,6 +152,13 @@ kubectl wait --for condition=established \
   crd/clustersecretstores.external-secrets.io \
   --timeout=60s
 
+# Clear kubectl's local discovery cache — it may still serve a stale API list
+# that doesn't include the newly installed CRDs, causing "no matches for kind" errors
+rm -rf ~/.kube/cache/discovery
+
+# Confirm CRD is visible before applying (optional sanity check)
+kubectl api-resources | grep clustersecretstore
+
 # Apply ExternalSecrets (pulls secrets from AWS Secrets Manager into K8s)
 kubectl apply -f k8s/external-secrets/cluster-secret-store.yaml
 kubectl apply -f k8s/external-secrets/dev-external-secrets.yaml
