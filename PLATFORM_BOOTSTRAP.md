@@ -5,42 +5,49 @@
 
 ---
 
-```
-Create VPC + ECR + EKS + RDS  ← all four together in Phase 1
-```
+## Two Repositories — Clear Responsibilities
 
-This is still simple — one `terraform apply` creates everything.
+| Repo | URL | Contains |
+|------|-----|----------|
+| `pharmops` | `https://github.com/ravdy/pharmops` | Terraform — AWS infrastructure only |
+| `pharmops-gitops` | `https://github.com/ravdy/pharmops-gitops` | Helm charts, ArgoCD apps, K8s manifests, DB init |
+
+Clone both before starting:
+
+```bash
+git clone https://github.com/ravdy/pharmops.git
+git clone https://github.com/ravdy/pharmops-gitops.git
+```
 
 ---
 
-## Phase 1 Overview
+## Bootstrap Overview
 
 ```
-Step 1  → Terraform: VPC + ECR + EKS + RDS  (15–25 min, automated)
+Step 1  → Terraform: VPC + ECR + EKS + RDS         (pharmops repo)
 Step 2  → Connect kubectl to the new EKS cluster
-Step 3  → Install ArgoCD on the cluster
-Step 4  → Build Docker images locally and push to ECR
-Step 5  → Push GitOps config to GitHub (pharmops-gitops repo)
-Step 6  → Apply ArgoCD manifests (one Application per service)
-Step 7  → ArgoCD deploys all 5 services
+Step 3  → Install cluster add-ons + ArgoCD          (pharmops-gitops repo)
+Step 4  → Initialize database schemas
+Step 5  → Build Docker images and push to ECR       (pharmops repo)
+Step 6  → Update image tags in GitOps repo          (pharmops-gitops repo)
+Step 7  → Apply ArgoCD project and applications     (pharmops-gitops repo)
 Step 8  → Verify everything is running
 ```
 
-
 ---
 
-## Services in This Phase
+## Services
 
-| Service | Stack | Port | Purpose |
-|---------|-------|------|---------|
-| `auth-service` | Spring Boot | 8081 | Login, JWT, user management |
-| `api-gateway` | Spring Boot | 8080 | Routing + JWT validation |
-| `catalog-service` | Spring Boot | 8082 | CRUD demo — drugs, dosages |
-| `notification-service` | Node.js | 3000 | Email notifications (different stack) |
-| `pharma-ui` | React + Nginx | 80 | Frontend |
+| Service | Stack | Port | Deployed via |
+|---------|-------|------|--------------|
+| `pharma-ui` | React + Nginx | 80 | Raw K8s manifests |
+| `api-gateway` | Spring Boot | 8080 | Helm chart |
+| `auth-service` | Spring Boot | 8081 | Helm chart |
+| `catalog-service` | Spring Boot | 8082 | Helm chart |
+| `notification-service` | Node.js | 3000 | Helm chart |
 
-> **Why these 5?** Covers 3 tech stacks (Java, Node.js, React), a complete auth flow,
-> one real business domain for CRUD demos, and fits comfortably on a single t2.small node.
+> **Note:** `pharma-ui` is intentionally deployed via raw Kubernetes manifests (not Helm)
+> to demonstrate the difference — all other services use the shared Helm chart.
 
 ---
 
@@ -64,20 +71,16 @@ aws dynamodb create-table \
   --region us-east-1
 ```
 
-### 1.2 Create terraform.tfvars
+### 1.2 Apply Terraform
 
 ```bash
-cd pharma-devops/terraform/envs/dev
+cd pharmops/pharma-devops/terraform/envs/dev
 
 cat > terraform.tfvars << 'EOF'
 db_password = "PharmaSecure#2024Dev!"
 jwt_secret  = "pharma-jwt-super-secret-dev-key-min-32-chars"
 EOF
-```
 
-### 1.3 Apply
-
-```bash
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
@@ -85,14 +88,14 @@ terraform apply tfplan
 
 **What gets created:**
 
-| Resource | Details | Why |
-|----------|---------|-----|
-| VPC | 10.0.0.0/16, 3 subnet tiers | Network isolation |
-| EKS Cluster | pharma-dev, v1.33, t2.small | Kubernetes control plane |
-| RDS PostgreSQL | db.t3.micro, pharmadb | Shared database, schema-per-service |
-| ECR Repositories | 5 repos (one per service) | Private Docker registry |
-| IAM Roles | ESO role, node role | Least-privilege AWS access |
-| Secrets Manager | dev/pharma/db, dev/pharma/jwt | No secrets in code |
+| Resource | Details |
+|----------|---------|
+| VPC | 10.0.0.0/16, 3 subnet tiers |
+| EKS Cluster | pharmops-dev, t2.small nodes |
+| RDS PostgreSQL | db.t3.micro, pharmadb |
+| ECR Repositories | 5 repos (one per service) |
+| IAM Roles | ESO role, node role |
+| Secrets Manager | dev/pharma/db, dev/pharma/jwt |
 
 > **Teaching point:** One `terraform apply` creates ~30 AWS resources in the right order.
 > This is IaC — repeatable, version-controlled, reviewable infrastructure.
@@ -102,16 +105,13 @@ terraform apply tfplan
 ## Step 2 — Connect kubectl
 
 ```bash
-# Configure kubectl to talk to the new EKS cluster
 aws eks update-kubeconfig \
   --region us-east-1 \
-  --name pharma-dev \
-  --alias pharma-dev
+  --name pharmops-dev \
+  --alias pharmops-dev
 
-# Verify — should show 2 nodes in Ready state
+# Verify — nodes should be in Ready state
 kubectl get nodes
-
-# Show node details (instance type, AZ)
 kubectl get nodes -o wide
 ```
 
@@ -119,14 +119,11 @@ kubectl get nodes -o wide
 
 ## Step 3 — Install Cluster Add-ons
 
-All K8s and ArgoCD manifests are in the `pharmops-gitops` repo. Clone it first if you haven't already:
+All K8s and ArgoCD manifests live in `pharmops-gitops`. Run from inside that repo:
 
 ```bash
-git clone https://github.com/ravdy/pharmops-gitops.git
 cd pharmops-gitops
-```
 
-```bash
 # Add Helm repos
 helm repo add ingress-nginx    https://kubernetes.github.io/ingress-nginx
 helm repo add external-secrets https://charts.external-secrets.io
@@ -146,10 +143,16 @@ export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output tex
 helm upgrade --install external-secrets external-secrets/external-secrets \
   --namespace kube-system \
   --set installCRDs=true \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::${AWS_ACCOUNT_ID}:role/pharma-dev-eso-role" \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::${AWS_ACCOUNT_ID}:role/pharmops-dev-eso-role" \
   --wait
 
-# Apply ExternalSecrets (ESO pulls secrets from AWS Secrets Manager into K8s)
+# Wait for CRDs to be fully registered in the API server before applying ClusterSecretStore
+# --wait on helm only waits for pods — CRDs need a few extra seconds to propagate
+kubectl wait --for condition=established \
+  crd/clustersecretstores.external-secrets.io \
+  --timeout=60s
+
+# Apply ExternalSecrets (pulls secrets from AWS Secrets Manager into K8s)
 kubectl apply -f k8s/external-secrets/cluster-secret-store.yaml
 kubectl apply -f k8s/external-secrets/dev-external-secrets.yaml
 
@@ -164,10 +167,9 @@ helm upgrade --install argocd argo/argo-cd \
 Verify ArgoCD is up:
 ```bash
 kubectl get pods -n argocd
-# All pods should be Running
 ```
 
-Get ArgoCD password:
+Get ArgoCD admin password:
 ```bash
 kubectl get secret argocd-initial-admin-secret \
   -n argocd \
@@ -179,9 +181,9 @@ echo ""
 
 ## Step 4 — Initialize Database Schemas
 
-The first time RDS is created, it has no schemas. Create them before deploying services:
-
 ```bash
+# Run from pharmops repo — needs terraform output
+cd pharmops/pharma-devops/terraform/envs/dev
 export RDS_ENDPOINT=$(terraform output -raw rds_endpoint)
 
 kubectl run psql-init --rm -it \
@@ -209,9 +211,9 @@ export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin ${REGISTRY}
 ```
-Note: if you are getting error then please use below command 
-create a file build-all.sh under pharma-devops directory. 
-**Mac/Linux — build-all.sh:**
+
+Create `build-all.sh` in the `pharmops` root:
+
 ```bash
 #!/bin/bash
 set -e
@@ -226,14 +228,12 @@ SERVICES=(
 )
 
 for svc in "${SERVICES[@]}"; do
-  echo ""
   echo "========== Building: $svc =========="
   docker build -t "${REGISTRY}/${svc}:${TAG}" "services/${svc}"
   docker push "${REGISTRY}/${svc}:${TAG}"
   echo "Pushed: ${REGISTRY}/${svc}:${TAG}"
 done
 
-echo ""
 echo "All 5 images pushed to ECR successfully!"
 ```
 
@@ -241,93 +241,45 @@ echo "All 5 images pushed to ECR successfully!"
 chmod +x build-all.sh && ./build-all.sh
 ```
 
-> **Teaching point while images build (15–20 min):**
-> Show students the Dockerfiles. Point out multi-stage builds:
-> - Stage 1: Maven builds the JAR (heavy — JDK + all dependencies)
-> - Stage 2: Copies only the JAR into a slim JRE image
-> - Final image: ~200MB instead of ~500MB
-
 ---
 
-## Step 6 — Push GitOps Config to GitHub
-
-ArgoCD watches the `pharmops-gitops` repository at `https://github.com/ravdy/pharmops-gitops.git`.
-This repo contains everything that runs on the cluster — Helm charts, ArgoCD apps, K8s manifests, and DB init scripts.
-
-### Repo structure
-
-```
-pharmops-gitops/
-├── pharma-service/              # shared Helm chart (all services use this)
-│   ├── Chart.yaml
-│   ├── values.yaml              # defaults
-│   └── templates/
-├── envs/
-│   ├── dev/
-│   │   ├── values-pharma-ui.yaml
-│   │   ├── values-api-gateway.yaml
-│   │   ├── values-auth-service.yaml
-│   │   ├── values-notification-service.yaml
-│   │   └── values-catalog-service.yaml
-│   ├── qa/
-│   └── prod/
-├── argocd/
-│   ├── install/                 # ArgoCD namespace + ingress
-│   ├── projects/                # ArgoCD AppProject
-│   └── apps/dev/                # per-service Application manifests
-├── k8s/
-│   ├── namespaces.yaml
-│   ├── rbac/
-│   ├── ingress/
-│   └── external-secrets/
-└── db-init/                     # SQL schema init scripts
-```
-
-If you are setting this up from scratch, push the local `pharmops-gitops/` folder to GitHub:
+## Step 6 — Update Image Tags in GitOps Repo
 
 ```bash
 cd pharmops-gitops
-git init && git checkout -b main
-git add .
-git commit -m "Initial GitOps config"
-git remote add origin https://github.com/ravdy/pharmops-gitops.git
-git push -u origin main
-```
 
-Update image repositories and tags in the dev values files before pushing:
-
-```bash
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+```
 
-for svc in auth-service api-gateway catalog-service notification-service pharma-ui; do
+**Helm-managed services** — update values files:
+
+```bash
+for svc in auth-service api-gateway catalog-service notification-service; do
   FILE="envs/dev/values-${svc}.yaml"
-  [ -f "$FILE" ] && sed -i "s|repository:.*|repository: ${REGISTRY}/${svc}|" "$FILE"
-  [ -f "$FILE" ] && sed -i "s|tag:.*|tag: v1.0.0|" "$FILE"
+  sed -i "s|repository:.*|repository: ${REGISTRY}/${svc}|" "$FILE"
+  sed -i "s|tag:.*|tag: v1.0.0|" "$FILE"
 done
+```
 
+**pharma-ui** — update the raw manifest directly (no values file):
+
+```bash
+sed -i "s|image:.*|image: ${REGISTRY}/pharma-ui:v1.0.0|" \
+  k8s-manifests/pharma-ui/deployment.yaml
+```
+
+> **Teaching point:** This is one of the pain points of raw manifests — you have to
+> manually find and edit the image line in the deployment file. With Helm, it's always
+> `tag:` in one values file across all environments.
+
+```bash
 git add . && git commit -m "Set ECR image tags v1.0.0 for dev" && git push
 ```
 
-> **Two repos, clear responsibilities:**
-> - `pharmops` → Terraform only (AWS infrastructure)
-> - `pharmops-gitops` → everything on the cluster (Helm, ArgoCD, K8s, DB init)
-
 ---
 
-## Step 7 — Configure and Apply ArgoCD
-
-### 7.1 Port-Forward ArgoCD UI
-
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-# Open: https://localhost:8080
-# Username: admin  |  Password: (from Step 3)
-```
-
-### 7.2 Apply ArgoCD Project and Per-Service Applications
-
-All ArgoCD and K8s manifests now live in the `pharmops-gitops` repo. Run these from inside that directory.
+## Step 7 — Apply ArgoCD Project and Applications
 
 ```bash
 cd pharmops-gitops
@@ -335,43 +287,59 @@ cd pharmops-gitops
 # Apply the ArgoCD project first
 kubectl apply -f argocd/projects/pharma-project.yaml
 
-# Apply individual Application manifests for each service
+# Apply RBAC
+kubectl apply -f k8s/rbac/cluster-roles.yaml
+kubectl apply -f k8s/rbac/dev-role.yaml
+kubectl apply -f k8s/rbac/rolebindings.yaml
+
+# Apply individual Application manifests — one per service
 kubectl apply -f argocd/apps/dev/pharma-ui/application.yaml
 kubectl apply -f argocd/apps/dev/api-gateway/application.yaml
 kubectl apply -f argocd/apps/dev/auth-service/application.yaml
 kubectl apply -f argocd/apps/dev/notification-service/application.yaml
 kubectl apply -f argocd/apps/dev/catalog-service/application.yaml
-
-# Apply RBAC
-kubectl apply -f k8s/rbac/cluster-roles.yaml
-kubectl apply -f k8s/rbac/dev-role.yaml
-kubectl apply -f k8s/rbac/rolebindings.yaml
 ```
 
-Each Application points to the same shared chart but a different values file:
+### How each Application is configured
 
+**pharma-ui** — points to raw K8s manifests:
 ```yaml
 source:
   repoURL: https://github.com/ravdy/pharmops-gitops.git
-  path: pharma-service                          # shared chart
-  helm:
-    valueFiles:
-      - ../envs/dev/values-auth-service.yaml    # service-specific overrides
+  path: k8s-manifests/pharma-ui     # plain YAML — no Helm block
 ```
 
-### 7.3 Sync and Watch
+**All other services** — points to shared Helm chart with service-specific values:
+```yaml
+source:
+  repoURL: https://github.com/ravdy/pharmops-gitops.git
+  path: pharma-service               # shared Helm chart
+  helm:
+    valueFiles:
+      - ../envs/dev/values-auth-service.yaml
+```
 
-In the ArgoCD UI you will see 5 separate applications — one per service:
-- `pharma-ui-dev`
-- `api-gateway-dev`
-- `auth-service-dev`
-- `notification-service-dev`
-- `catalog-service-dev`
-
-Click **Sync** on each, or sync all from terminal:
+### Port-forward ArgoCD UI
 
 ```bash
-# Sync all apps at once (requires argocd CLI)
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Open: https://localhost:8080
+# Username: admin  |  Password: (from Step 3)
+```
+
+In the ArgoCD UI you will see 5 separate applications:
+
+| App name | Deployed via |
+|---|---|
+| `pharma-ui-dev` | Raw K8s manifests |
+| `api-gateway-dev` | Helm |
+| `auth-service-dev` | Helm |
+| `notification-service-dev` | Helm |
+| `catalog-service-dev` | Helm |
+
+Sync all from terminal:
+
+```bash
 argocd app sync pharma-ui-dev api-gateway-dev auth-service-dev notification-service-dev catalog-service-dev
 
 # Watch pods come up
@@ -385,13 +353,15 @@ kubectl get pods -n dev -w
 ```bash
 # All 5 pods should be Running
 kubectl get pods -n dev
-
-# Check services
 kubectl get svc -n dev
+
+# Test pharma-ui
+kubectl port-forward svc/pharma-ui -n dev 8090:80 &
+curl http://localhost:8090
+# Returns HTML
 
 # Test auth service
 kubectl port-forward svc/auth-service -n dev 8081:8081 &
-
 curl http://localhost:8081/actuator/health
 # {"status":"UP"}
 
@@ -402,23 +372,23 @@ curl -X POST http://localhost:8081/api/auth/login \
 
 # Test catalog service
 kubectl port-forward svc/catalog-service -n dev 8082:8082 &
-
 curl http://localhost:8082/actuator/health
 # {"status":"UP"}
 ```
 
 ---
 
-## Phase 1 Complete
+## Bootstrap Complete
 
-Students can now see:
-- 5 microservices running on Kubernetes
-- ArgoCD managing each service independently — sync, rollback, and health per service
-- Secrets pulled from AWS Secrets Manager (not hardcoded)
-- NGINX Ingress routing traffic
-- One shared Helm chart rendering different manifests per service via values files
+What students can now observe:
 
-**Next sessions build on this:**
-- Phase 2: GitHub Actions CI/CD (automate the manual docker build + push you just did)
+- 5 microservices running on Kubernetes across two deployment strategies
+- `pharma-ui` deployed via raw manifests — hardcoded values, manual image updates
+- 4 services deployed via Helm — one chart, one values file per service
+- ArgoCD managing each service independently with separate sync/rollback
+- Secrets pulled from AWS Secrets Manager via External Secrets Operator
+- NGINX Ingress routing external traffic into the cluster
+
+**Next phases:**
+- Phase 2: GitHub Actions CI/CD — automate the manual docker build + push + image tag update
 - Phase 3: Monitoring with Prometheus + Grafana
-- Concepts sessions: Use this running cluster to demonstrate every K8s concept live
