@@ -1,7 +1,7 @@
 # Pharma DevOps — Dev Environment Implementation Guide
 
 > **Scope:** Bring the dev environment live on a brand-new AWS account.
-> **Region:** us-east-1 | **Environment:** dev (qa/prod follow the same pattern)
+> **Region:** eu-west-2 | **Environment:** dev (qa/prod follow the same pattern)
 
 ---
 
@@ -232,7 +232,7 @@ This is done in the **AWS Console** — same on Mac and Windows:
 aws configure
 # AWS Access Key ID:     <paste from CSV>
 # AWS Secret Access Key: <paste from CSV>
-# Default region:        us-east-1
+# Default region:        eu-west-2
 # Default output format: json
 ```
 
@@ -255,14 +255,14 @@ aws sts get-caller-identity
 **Mac / WSL2:**
 ```bash
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export AWS_REGION=us-east-1
+export AWS_REGION=eu-west-2
 echo "Account: $AWS_ACCOUNT_ID | Region: $AWS_REGION"
 ```
 
 **Windows PowerShell:**
 ```powershell
 $env:AWS_ACCOUNT_ID = (aws sts get-caller-identity --query Account --output text)
-$env:AWS_REGION = "us-east-1"
+$env:AWS_REGION = "eu-west-2"
 Write-Host "Account: $env:AWS_ACCOUNT_ID | Region: $env:AWS_REGION"
 ```
 
@@ -281,7 +281,7 @@ The S3 bucket and DynamoDB table must exist **before** `terraform init`. Create 
 # Create bucket
 aws s3api create-bucket \
   --bucket pharma-tf-state \
-  --region us-east-1
+  --region eu-west-2
 
 # Enable versioning
 aws s3api put-bucket-versioning \
@@ -307,7 +307,7 @@ aws s3api put-bucket-encryption \
 # Create bucket
 aws s3api create-bucket `
   --bucket pharma-tf-state `
-  --region us-east-1
+  --region eu-west-2
 
 # Enable versioning
 aws s3api put-bucket-versioning `
@@ -338,7 +338,7 @@ aws dynamodb create-table \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+  --region eu-west-2
 ```
 
 **Windows PowerShell:**
@@ -348,7 +348,7 @@ aws dynamodb create-table `
   --attribute-definitions AttributeName=LockID,AttributeType=S `
   --key-schema AttributeName=LockID,KeyType=HASH `
   --billing-mode PAY_PER_REQUEST `
-  --region us-east-1
+  --region eu-west-2
 ```
 
 Verify (same on all platforms):
@@ -454,7 +454,7 @@ terraform output
 
 $env:EKS_CLUSTER_NAME = "pharma-dev-cluster"
 $env:RDS_ENDPOINT = (terraform output -raw rds_endpoint)
-$env:ECR_REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
+$env:ECR_REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
 
 Write-Host "EKS: $env:EKS_CLUSTER_NAME"
 Write-Host "RDS: $env:RDS_ENDPOINT"
@@ -470,7 +470,7 @@ Write-Host "ECR: $env:ECR_REGISTRY"
 **Mac / WSL2:**
 ```bash
 aws eks update-kubeconfig \
-  --region us-east-1 \
+  --region eu-west-2 \
   --name pharma-dev-cluster \
   --alias pharma-dev-cluster
 ```
@@ -478,7 +478,7 @@ aws eks update-kubeconfig \
 **Windows PowerShell:**
 ```powershell
 aws eks update-kubeconfig `
-  --region us-east-1 `
+  --region eu-west-2 `
   --name pharma-dev-cluster `
   --alias pharma-dev-cluster
 ```
@@ -642,7 +642,7 @@ kubectl get pods -n monitoring
 Terraform creates these automatically. Verify they exist:
 
 ```bash
-aws secretsmanager list-secrets --region us-east-1 \
+aws secretsmanager list-secrets --region eu-west-2 \
   --query 'SecretList[].Name' --output table
 # Should show: dev/pharma/db  and  dev/pharma/jwt
 ```
@@ -653,7 +653,7 @@ If missing, create manually:
 ```bash
 aws secretsmanager create-secret \
   --name "dev/pharma/db" \
-  --region us-east-1 \
+  --region eu-west-2 \
   --secret-string "{
     \"username\": \"pharmaadmin\",
     \"password\": \"PharmaSecure#2024Dev!\",
@@ -664,7 +664,7 @@ aws secretsmanager create-secret \
 
 aws secretsmanager create-secret \
   --name "dev/pharma/jwt" \
-  --region us-east-1 \
+  --region eu-west-2 \
   --secret-string "{\"secret\": \"pharma-jwt-super-secret-dev-key-min-32-chars\"}"
 ```
 
@@ -672,12 +672,12 @@ aws secretsmanager create-secret \
 ```powershell
 aws secretsmanager create-secret `
   --name "dev/pharma/db" `
-  --region us-east-1 `
+  --region eu-west-2 `
   --secret-string "{`"username`":`"pharmaadmin`",`"password`":`"PharmaSecure#2024Dev!`",`"host`":`"$env:RDS_ENDPOINT`",`"port`":`"5432`",`"dbname`":`"pharmadb`"}"
 
 aws secretsmanager create-secret `
   --name "dev/pharma/jwt" `
-  --region us-east-1 `
+  --region eu-west-2 `
   --secret-string "{`"secret`":`"pharma-jwt-super-secret-dev-key-min-32-chars`"}"
 ```
 
@@ -830,7 +830,7 @@ kubectl apply -f C:\Users\YourName\pharmops-gitops\argocd\apps\dev\notification-
 kubectl apply -f C:\Users\YourName\pharmops-gitops\argocd\apps\dev\pharma-ui-app.yaml
 ```
 
-> **Before applying:** Edit each `*-app.yaml` and replace `<YOUR_GITHUB_USERNAME>` in `repoURL` with your actual GitHub username/org.
+> **Before applying:** Edit each `*-app.yaml` and replace `rkoneru-hub` in `repoURL` with your actual GitHub username/org.
 
 ---
 
@@ -1071,16 +1071,16 @@ GitHub Actions hasn't run yet, so no images exist in ECR. Do a one-time manual b
 
 **Mac / WSL2:**
 ```bash
-aws ecr get-login-password --region us-east-1 | \
+aws ecr get-login-password --region eu-west-2 | \
   docker login --username AWS --password-stdin \
-  ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+  ${AWS_ACCOUNT_ID}.dkr.ecr.eu-west-2.amazonaws.com
 ```
 
 **Windows PowerShell:**
 ```powershell
-$password = aws ecr get-login-password --region us-east-1
+$password = aws ecr get-login-password --region eu-west-2
 $password | docker login --username AWS --password-stdin `
-  "$env:AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
+  "$env:AWS_ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
 ```
 
 ---
@@ -1092,7 +1092,7 @@ $password | docker login --username AWS --password-stdin `
 #!/bin/bash
 set -e
 
-REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.eu-west-2.amazonaws.com"
 TAG="v1.0.0"
 PROJECT="${HOME}/pharma-devops/services"
 
@@ -1118,7 +1118,7 @@ chmod +x build-all.sh
 
 **Windows PowerShell — save as `build-all.ps1` and run:**
 ```powershell
-$REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
+$REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
 $TAG = "v1.0.0"
 $PROJECT = "C:\Users\YourName\pharma-devops\services"
 
@@ -1153,14 +1153,14 @@ The `image` section should look like this (replace `123456789012` with your acco
 
 ```yaml
 image:
-  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/auth-service
+  repository: 123456789012.dkr.ecr.eu-west-2.amazonaws.com/auth-service
   tag: v1.0.0
   pullPolicy: IfNotPresent
 ```
 
 **Mac / WSL2 — update all dev values files at once:**
 ```bash
-REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.eu-west-2.amazonaws.com"
 
 for f in ~/pharma-helm-charts/envs/dev/values-*.yaml; do
   sed -i "s|repository:.*|repository: ${REGISTRY}/$(basename $f values-.yaml | sed 's/values-//')|" "$f"
@@ -1170,7 +1170,7 @@ done
 
 **Windows PowerShell:**
 ```powershell
-$REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
+$REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
 
 Get-ChildItem C:\Users\YourName\pharma-helm-charts\envs\dev\values-*.yaml | ForEach-Object {
   $svc = $_.BaseName -replace "^values-", ""
@@ -1395,7 +1395,7 @@ Common causes:
 ### ECR Image Pull Error
 
 ```bash
-aws ecr describe-images --repository-name auth-service --region us-east-1
+aws ecr describe-images --repository-name auth-service --region eu-west-2
 
 aws iam list-attached-role-policies --role-name pharma-dev-node-role
 # Verify AmazonEC2ContainerRegistryReadOnly is attached
@@ -1668,7 +1668,7 @@ The Helm values file stores the SHA tag (not `latest`) so ArgoCD always knows ex
 ```yaml
 # helm-charts/envs/dev/values-auth-service.yaml
 image:
-  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/auth-service
+  repository: 123456789012.dkr.ecr.eu-west-2.amazonaws.com/auth-service
   tag: "a3f7c2b1"    # ← updated automatically by GitHub Actions
   pullPolicy: IfNotPresent
 ```
@@ -1878,7 +1878,7 @@ Deploy → dev           → ~1 min (Helm values update + git push)
 ```bash
 aws ecr describe-images \
   --repository-name auth-service \
-  --region us-east-1 \
+  --region eu-west-2 \
   --query 'sort_by(imageDetails,& imagePushedAt)[-1]' \
   --output table
 ```
@@ -2621,4 +2621,4 @@ kubectl get storageclass
 
 ---
 
-*Pharma DevOps Learning Project | AWS: us-east-1 | Phase 1: EKS + ArgoCD | Phase 2: GitHub Actions CI/CD | Phase 3: Prometheus + Grafana*
+*Pharma DevOps Learning Project | AWS: eu-west-2 | Phase 1: EKS + ArgoCD | Phase 2: GitHub Actions CI/CD | Phase 3: Prometheus + Grafana*

@@ -45,7 +45,7 @@ Configure the AWS CLI with credentials that have permissions to create VPC, EKS,
 
 ```bash
 aws configure
-# Enter: Access Key ID, Secret Access Key, Region (us-east-1), Output (json)
+# Enter: Access Key ID, Secret Access Key, Region (eu-west-2), Output (json)
 
 # Verify
 aws sts get-caller-identity
@@ -75,9 +75,9 @@ All build commands in this guide use bash syntax. If you are on **Windows PowerS
 PowerShell example for ECR login and image build:
 ```powershell
 $env:AWS_ACCOUNT_ID = aws sts get-caller-identity --query Account --output text
-$env:REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
+$env:REGISTRY = "$env:AWS_ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com"
 
-aws ecr get-login-password --region us-east-1 | `
+aws ecr get-login-password --region eu-west-2 | `
   docker login --username AWS --password-stdin $env:REGISTRY
 
 docker buildx build --platform linux/amd64 `
@@ -91,8 +91,8 @@ docker buildx build --platform linux/amd64 `
 Fork both repositories on GitHub into your account, then clone:
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/pharmops.git
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/pharmops-gitops.git
+git clone https://github.com/rkoneru-hub/pharmops.git
+git clone https://github.com/rkoneru-hub/pharmops-gitops.git
 ```
 
 ---
@@ -138,7 +138,7 @@ find envs/dev -name "*.yaml" -exec \
   sed -i "s/<RDS_ENDPOINT>/$RDS_ENDPOINT/g" {} \;
 ```
 
-### 2.3 `<YOUR_GITHUB_USERNAME>` → Your GitHub username
+### 2.3 `rkoneru-hub` → Your GitHub username
 
 Files to update: all files under `argocd/apps/dev/` and `argocd/projects/`
 
@@ -146,7 +146,7 @@ Quick replace:
 ```bash
 GITHUB_USERNAME="<your-github-username>"
 find argocd -name "*.yaml" -exec \
-  sed -i "s/<YOUR_GITHUB_USERNAME>/$GITHUB_USERNAME/g" {} \;
+  sed -i "s/rkoneru-hub/$GITHUB_USERNAME/g" {} \;
 ```
 
 ### 2.4 `<YOUR_ALB_HOSTNAME>` → Your nginx ingress ALB hostname
@@ -209,7 +209,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 aws s3api create-bucket \
   --bucket pharma-tf-state-${ACCOUNT_ID} \
-  --region us-east-1
+  --region eu-west-2
 
 aws s3api put-bucket-versioning \
   --bucket pharma-tf-state-${ACCOUNT_ID} \
@@ -231,8 +231,8 @@ cd pharmops/pharma-devops/terraform/envs/dev
 
 # Create this file locally — it is gitignored and must never be committed
 cat > terraform.tfvars << 'EOF'
-db_password = "<YOUR_DB_PASSWORD>"
-jwt_secret  = "<YOUR_JWT_SECRET_MIN_32_CHARS>"
+db_password = "<BHAVNAsaitejas>"
+jwt_secret  = "<my-super-secret-jwt-key-1234567890>"
 EOF
 ```
 
@@ -285,7 +285,7 @@ aws secretsmanager list-secrets --query 'SecretList[].Name' --output table
 
 ```bash
 aws eks update-kubeconfig \
-  --region us-east-1 \
+  --region eu-west-2 \
   --name pharma-dev-cluster \
   --alias pharma-dev
 
@@ -427,11 +427,11 @@ kubectl delete pod psql-check -n dev
 
 ```bash
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.eu-west-2.amazonaws.com"
 export IMAGE_TAG="v1.0.0"
 
 # Login to ECR
-aws ecr get-login-password --region us-east-1 | \
+aws ecr get-login-password --region eu-west-2 | \
   docker login --username AWS --password-stdin ${REGISTRY}
 ```
 
@@ -450,7 +450,7 @@ docker buildx build --platform linux/amd64 \
 
 # catalog-service (ECR repo name is catalog-service, directory is drug-catalog-service)
 docker buildx build --platform linux/amd64 \
-  -t ${REGISTRY}/catalog-service:${IMAGE_TAG} --push services/drug-catalog-service
+  -t ${REGISTRY}/drug-catalog-service:${IMAGE_TAG} --push services/drug-catalog-service
 
 # notification-service
 docker buildx build --platform linux/amd64 \
@@ -488,16 +488,16 @@ After the placeholders from Section 2 have been replaced, update the image tags 
 cd pharmops-gitops
 
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+export REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.eu-west-2.amazonaws.com"
 export IMAGE_TAG="v1.0.0"
 
 # Update Helm values files (api-gateway, auth-service, catalog-service, notification-service)
 for svc in api-gateway auth-service catalog-service notification-service; do
-  sed -i "s|tag:.*|tag: ${IMAGE_TAG}|" "envs/dev/values-${svc}.yaml"
+  sed -i '' "s|tag:.*|tag: ${IMAGE_TAG}|" "envs/dev/values-${svc}.yaml"
 done
 
 # Update pharma-ui raw manifest
-sed -i "s|image:.*pharma-ui.*|image: ${REGISTRY}/pharma-ui:${IMAGE_TAG}|" \
+sed -i '' "s|image:.*pharma-ui.*|image: ${REGISTRY}/pharma-ui:${IMAGE_TAG}|" \
   k8s-manifests/pharma-ui/deployment.yaml
 
 git add .

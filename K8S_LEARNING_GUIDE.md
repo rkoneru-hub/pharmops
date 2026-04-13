@@ -929,13 +929,13 @@ Change `pharma-ui-app.yaml` from raw manifest path to Helm chart:
 ```yaml
 # Before (raw manifests)
 source:
-  repoURL: https://github.com/<YOUR_GITHUB_USERNAME>/pharmops-gitops.git
+  repoURL: https://github.com/rkoneru-hub/pharmops-gitops.git
   targetRevision: HEAD
   path: k8s-manifests/pharma-ui        # ← raw YAML files
 
 # After (Helm chart)
 source:
-  repoURL: https://github.com/<YOUR_GITHUB_USERNAME>/pharmops-gitops.git
+  repoURL: https://github.com/rkoneru-hub/pharmops-gitops.git
   targetRevision: HEAD
   path: helm-charts                     # ← shared Helm chart
   helm:
